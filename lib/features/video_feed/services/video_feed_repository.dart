@@ -24,7 +24,15 @@ class VideoFeedRepository {
     return [];
   }
 
-  Future<void> likePost(int postId) async {
-    await _api.post('/api/v1/app/posts/$postId/reaction/like', {});
+  Future<void> likePost(int postId, bool action) async {
+    try {
+      await _api.post(
+        '/api/v1/app/posts/$postId/reaction/like',
+        {'action': action.toString()},
+      );
+    } catch (e) {
+      print('Error liking post: $e');
+      rethrow;
+    }
   }
 }

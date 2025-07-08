@@ -2,5 +2,5 @@
 
 class AppColors {
   static const Color primary = Colors.orange;
-  static const Color accent = Colors.blue;
+  static const Color accent = Colors.orange;
 }
