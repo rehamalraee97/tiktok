@@ -172,7 +172,7 @@ class VideoFeedNotifier extends StateNotifier<VideoFeedState> {
     final docRef = db.collection('videos').doc(video.id.toString());
 
     await docRef.update({
-      'bookmarks.count': video.isSaved
+      'bookmarks.count': !video.isSaved
           ? FieldValue.increment(-1)  // if currently saved, decrement on unsave
           : FieldValue.increment(1),  // if currently not saved, increment on save
       'bookmarks.isSelected': !video.isSaved, // toggle the bool
