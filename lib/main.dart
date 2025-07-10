@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_core/firebase_core.dart';
+
+import 'package:tiktok_clone_app/core/constants/app_colors.dart';
+import 'package:tiktok_clone_app/router/app_router.dart'; // <-- your router provider
 import 'package:tiktok_clone_app/features/video_feed/screens/video_feed_screen.dart';
-import 'core/constants/app_colors.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -12,12 +14,14 @@ void main() async {
   );
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends ConsumerWidget {
   const MyApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
+  Widget build(BuildContext context, WidgetRef ref) {
+    final router = ref.watch(appRouterProvider);
+
+    return MaterialApp.router(
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         scaffoldBackgroundColor: Colors.black,
@@ -27,7 +31,7 @@ class MyApp extends StatelessWidget {
           backgroundColor: Colors.black,
         ),
       ),
-      home: const MainScaffold(),
+      routerConfig: router,
     );
   }
 }
@@ -58,8 +62,12 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
         currentIndex: _index,
         onTap: (index) => setState(() => _index = index),
         items: [
-          const BottomNavigationBarItem(icon: Icon(Icons.home), label: ""),
-          const BottomNavigationBarItem(icon: Icon(Icons.search), label: ""),
+          BottomNavigationBarItem(
+              icon: Icon(_index == 0 ? Icons.home_filled : Icons.home_outlined),
+              label: ""),
+          BottomNavigationBarItem(
+              icon: Icon(_index == 1 ? Icons.search_rounded : Icons.search),
+              label: ""),
           BottomNavigationBarItem(
             icon: Container(
               decoration: const BoxDecoration(
@@ -71,8 +79,12 @@ class _MainScaffoldState extends ConsumerState<MainScaffold> {
             ),
             label: "",
           ),
-          const BottomNavigationBarItem(icon: Icon(Icons.inbox), label: ""),
-          const BottomNavigationBarItem(icon: Icon(Icons.person), label: ""),
+          BottomNavigationBarItem(
+              icon: Icon(_index == 3 ? Icons.inbox_rounded : Icons.inbox_sharp),
+              label: ""),
+          BottomNavigationBarItem(
+              icon: Icon(_index == 4 ? Icons.person : Icons.person_2_outlined),
+              label: ""),
         ],
       ),
     );

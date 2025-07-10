@@ -31,6 +31,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        ndkVersion = "27.0.12077973"
     }
 
     buildTypes {
@@ -44,4 +45,8 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    implementation("com.google.android.exoplayer:exoplayer:2.19.1")
 }

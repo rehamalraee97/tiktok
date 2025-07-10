@@ -7,8 +7,8 @@ import 'package:flutter/foundation.dart'; // Import for kDebugMode
 class ApiBaseHelper {
   final Dio _dio = Dio(BaseOptions(
     baseUrl: 'https://mrmtest.eu.ngrok.io',
-    connectTimeout: const Duration(seconds: 10), // Increased timeout
-    receiveTimeout: const Duration(seconds: 10), // Increased timeout
+    connectTimeout: const Duration(seconds: 60), // Increased timeout
+    receiveTimeout: const Duration(seconds: 60), // Increased timeout
   ));
 
   ApiBaseHelper() {

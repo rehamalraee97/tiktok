@@ -1,54 +1,12 @@
-// Video Item Widget
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:chewie/chewie.dart';
-import 'package:tiktok_clone_app/features/video_feed/controllers/video_feed_provider.dart';
-import 'package:tiktok_clone_app/features/video_feed/models/post.dart';
-import 'package:tiktok_clone_app/features/video_feed/models/video_watch_tracker.dart';
 import 'package:video_player/video_player.dart';
-
-
-class VideoWatchTracker {
-  Duration? _segmentStart;
-  final List<WatchSegment> _segments = [];
-
-  Duration get totalWatchTime => _segments.fold(
-    Duration.zero,
-        (total, segment) => total + (segment.end - segment.start),
-  );
-
-  List<WatchSegment> get segments => List.unmodifiable(_segments);
-
-  void onPlay(Duration position) {
-    _segmentStart ??= position;
-  }
-
-  void onPause(Duration position) {
-    if (_segmentStart != null) {
-      if (position > _segmentStart!) {
-        _segments.add(WatchSegment(start: _segmentStart!, end: position));
-      }
-      _segmentStart = null;
-    }
-  }
-
-  void onSeek(Duration newPosition) {
-    if (_segmentStart != null) {
-      _segments.add(WatchSegment(start: _segmentStart!, end: newPosition));
-    }
-    _segmentStart = newPosition;
-  }
-
-  void stop(Duration finalPosition) {
-    onPause(finalPosition);
-  }
-
-  Map<String, dynamic> toJson(String postId) => {
-    'postId': postId,
-    'watchTime': totalWatchTime.inSeconds,
-    'segments': segments.map((s) => s.toJson()).toList(),
-  };
-}
+import 'package:like_button/like_button.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:tiktok_clone_app/core/constants/app_colors.dart';
+import 'package:tiktok_clone_app/features/video_feed/controllers/video_feed_provider.dart';
+import 'package:tiktok_clone_app/features/video_feed/controllers/video_doc_provider.dart';
+import 'package:tiktok_clone_app/features/video_feed/models/post.dart';
 
 class VideoItem extends ConsumerStatefulWidget {
   final Post video;
@@ -67,115 +25,280 @@ class VideoItem extends ConsumerStatefulWidget {
 }
 
 class _VideoItemState extends ConsumerState<VideoItem> {
-  late VideoPlayerController _ctrl;
-  ChewieController? _chewieCtrl;
+  VideoPlayerController? _videoController;
   bool _initDone = false;
-  late final VideoWatchTracker _tracker;
+  String? _error;
+  bool _showFullDescription = false;
 
   @override
   void initState() {
     super.initState();
-    _tracker = VideoWatchTracker();
     _initializeController();
   }
 
-  void _initializeController() {
+  Future<void> _initializeController() async {
+    final state = ref.read(videoFeedProvider);
+    final idStr = widget.video.id.toString();
+
+    // Use preloaded controller if available and initialized
     if (widget.preloadedController != null &&
-        widget.preloadedController!.value.isInitialized &&
-        !widget.preloadedController!.value.isCompleted) {
-      _ctrl = widget.preloadedController!;
-      _setupChewie();
+        widget.preloadedController!.value.isInitialized) {
+      _videoController = widget.preloadedController;
+      _setupController();
+      return;
+    }
+
+    // Check if controller exists in state
+    if (state.videoControllers.containsKey(idStr)) {
+      _videoController = state.videoControllers[idStr];
+
+      // Check if controller is initialized
+      if (state.controllerInitialized[idStr] == true) {
+        _setupController();
+      } else {
+        // Listen for initialization status
+        ref.listen<bool?>(
+          videoFeedProvider.select((s) => s.controllerInitialized[idStr]),
+              (_, isInitialized) {
+            if (isInitialized == true && mounted) {
+              setState(() {
+                _initDone = true;
+                _setupController();
+              });
+            }
+          },
+        );
+      }
     } else {
-      _ctrl = VideoPlayerController.network(widget.video.videoUrl)
-        ..initialize().then((_) {
-          _ctrl.setLooping(true);
-          _setupChewie();
+      // Fallback: Initialize directly if not in state
+      try {
+        _videoController = VideoPlayerController.networkUrl(
+          Uri.parse(widget.video.videoUrl),
+        );
+        await _videoController!.initialize();
+        _videoController!.setLooping(true);
+        setState(() => _initDone = true);
+      } catch (e) {
+        setState(() {
+          _error = e.toString();
+          _initDone = true;
         });
-    }
-    _ctrl.addListener(_videoListener);
-  }
-
-  void _videoListener() {
-    if (!_ctrl.value.isInitialized) return;
-    final position = _ctrl.value.position;
-
-    if (_ctrl.value.isPlaying) {
-      _tracker.onPlay(position);
-    } else {
-      _tracker.onPause(position);
+      }
     }
   }
 
-  void _setupChewie() {
-    _chewieCtrl = ChewieController(
-      videoPlayerController: _ctrl,
-      autoPlay: widget.isCurrent,
-      looping: true,
-      showControls: false,
-    );
-    if (widget.isCurrent) _ctrl.play();
-    setState(() => _initDone = true);
+  void _setupController() {
+    if (_videoController == null) return;
+
+    if (widget.isCurrent &&
+        !_videoController!.value.isPlaying) {
+      _videoController!.play();
+    }
+  }
+
+  void _togglePlayPause() {
+    if (_videoController == null) return;
+
+    if (_videoController!.value.isPlaying) {
+      _videoController!.pause();
+    } else if (_videoController!.value.isInitialized) {
+      _videoController!.play();
+    }
+    setState(() {});
   }
 
   @override
   void didUpdateWidget(VideoItem oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (_initDone) {
-      widget.isCurrent ? _ctrl.play() : _ctrl.pause();
-    }
-  }
 
-  @override
-  Widget build(BuildContext context) {
-    if (!_initDone) {
-      return const Center(child: CircularProgressIndicator());
-    }
+    if (_videoController == null) return;
 
-    return GestureDetector(
-      onTap: () {
-        if (_ctrl.value.isPlaying) {
-          _ctrl.pause();
-        } else {
-          _ctrl.play();
-        }
-        setState(() {});
-      },
-      child: Stack(
-        children: [
-          Chewie(controller: _chewieCtrl!),
-          if (!_ctrl.value.isPlaying)
-            const Center(
-              child: Icon(Icons.play_arrow, size: 60, color: Colors.white),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _sendWatchData() async {
-    if (!_ctrl.value.isInitialized) return;
-    _tracker.stop(_ctrl.value.position);
-    final body = _tracker.toJson(widget.video.id.toString());
-
-    try {
-      await ref.read(videoFeedProvider.notifier)
-          .sendViewData(widget.video.id.toString(), body);
-    } catch (e) {
-      debugPrint('Error sending watch data: $e');
+    if (widget.isCurrent &&
+        !_videoController!.value.isPlaying) {
+      _videoController!.play();
+    } else if (!widget.isCurrent && _videoController!.value.isPlaying) {
+      _videoController!.pause();
     }
   }
 
   @override
   void dispose() {
-    _chewieCtrl?.dispose();
-    _ctrl.removeListener(_videoListener);
+    if (_videoController != null &&
+        widget.preloadedController == null) {
+      _videoController!.dispose();
+    }
+    super.dispose();
+  }
 
-    // Only dispose controller if it's not preloaded
-    if (widget.preloadedController == null) {
-      _ctrl.dispose();
+  void _toggleDescription() {
+    setState(() {
+      _showFullDescription = !_showFullDescription;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final videoSnapshot = ref.watch(videoDocProvider(widget.video.id.toString()));
+    final state = ref.watch(videoFeedProvider);
+    final isControllerReady = state.controllerInitialized[widget.video.id.toString()] == true ||
+        _videoController?.value.isInitialized == true;
+
+    if (!_initDone || !isControllerReady) {
+      return const Center(child: CircularProgressIndicator());
     }
 
-    _sendWatchData();
-    super.dispose();
+    if (_error != null) {
+      return Center(child: Text('Error: $_error'));
+    }
+
+    return videoSnapshot.when(
+      data: (doc) {
+        final data = doc.data();
+        final likesCount = data?['likes']?['count'] ?? 0;
+        final isLiked = data?['likes']?['isSelected'] ?? false;
+        final bookmarksCount = data?['bookmarks']?['count'] ?? 0;
+
+        return GestureDetector(
+          onTap: _togglePlayPause,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              FittedBox(
+                fit: BoxFit.cover,
+                child: SizedBox(
+                  width: _videoController!.value.size.width,
+                  height: _videoController!.value.size.height,
+                  child: VideoPlayer(_videoController!),
+                ),
+              ),
+              Positioned(
+                bottom: 25,
+                left: 16,
+                right: 70,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        CircleAvatar(
+                          backgroundImage: NetworkImage(widget.video.userImage),
+                        ),
+                        const SizedBox(width: 8),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              "${widget.video.name} ${widget.video.date}",
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13
+                              ),
+                            ),
+                            Text(
+                              widget.video.username,
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    GestureDetector(
+                      onTap: _toggleDescription,
+                      child: Text(
+                        widget.video.title,
+                        style: const TextStyle(color: Colors.white),
+                        maxLines: _showFullDescription ? null : 2,
+                        overflow: _showFullDescription
+                            ? TextOverflow.visible
+                            : TextOverflow.ellipsis,
+                      ),
+                    ),
+                    if (widget.video.title.length > 50)
+                      GestureDetector(
+                        onTap: _toggleDescription,
+                        child: Text(
+                          _showFullDescription ? 'See less' : 'See more',
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Positioned(
+                right: 16,
+                bottom: 20,
+                child: Column(
+                  children: [
+                    InkWell(
+                      onTap: () async {
+                        await ref.read(videoFeedProvider.notifier).likeVideo(widget.video);
+                      },
+                      child: LikeButton(
+                        isLiked: isLiked,
+                        likeCount: likesCount,
+                        countPostion: CountPostion.bottom,
+                        likeBuilder: (liked) => Icon(
+                          liked ? Icons.favorite : Icons.favorite_border,
+                          color: liked ? AppColors.accent : Colors.white,
+                          size: 32,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    IconButton(
+                      icon: Icon(
+                        widget.video.isSaved? Icons.bookmark:Icons.bookmark_border,
+                        color: widget.video.isSaved  ? AppColors.accent : Colors.white  ,
+                      ),
+                      onPressed: () async {
+                        setState(() {
+                          widget.video.isSaved=!widget.video.isSaved;
+                        });
+                        await ref.read(videoFeedProvider.notifier).bookmarkVideo(widget.video);
+                      },
+                    ),
+                    Text(
+                      '$bookmarksCount',
+                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                    ),
+                    const SizedBox(height: 16),
+                    IconButton(
+                      icon: const Icon(Icons.send_outlined, color: Colors.white),
+                      onPressed: () async {
+                        await ref.read(videoFeedProvider.notifier).shareVideo(widget.video);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: VideoProgressIndicator(
+                  _videoController!,
+                  allowScrubbing: true,
+                  colors: const VideoProgressColors(
+                    backgroundColor: Colors.white30,
+                    playedColor: AppColors.accent,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => Center(child: Text('Error: $e')),
+    );
   }
 }
