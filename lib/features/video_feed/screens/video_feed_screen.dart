@@ -1,3 +1,4 @@
+// Video Feed Screen
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:preload_page_view/preload_page_view.dart';
@@ -34,17 +35,6 @@ class _VideoFeedScreenState extends ConsumerState<VideoFeedScreen> {
       setState(() => _currentPageIndex = newIndex);
     }
 
-    // Pre-initialize next video
-    if (newIndex < state.posts.length - 1) {
-      final nextVideo = state.posts[newIndex + 1];
-      final nextId = nextVideo.id.toString();
-
-      if (!state.controllerInitialized.containsKey(nextId) ||
-          state.controllerInitialized[nextId] == false) {
-        ref.read(videoFeedProvider.notifier).getPosts();
-      }
-    }
-
     // Auto-fetch next page when reaching end
     if (state.hasNextPage && newIndex >= state.posts.length - 2) {
       ref.read(videoFeedProvider.notifier).getPosts();
@@ -55,6 +45,11 @@ class _VideoFeedScreenState extends ConsumerState<VideoFeedScreen> {
     if (_currentTab == newTab) return;
     setState(() => _currentTab = newTab);
     await ref.read(videoFeedProvider.notifier).setPostType(newTab);
+  }
+
+  Future<void> _refreshFeed() async {
+    setState(() => _currentPageIndex = 0);
+    await ref.read(videoFeedProvider.notifier).getPosts();
   }
 
   @override
@@ -107,37 +102,40 @@ class _VideoFeedScreenState extends ConsumerState<VideoFeedScreen> {
               children: [
                 (state.posts.isEmpty)
                     ? Shimmer.fromColors(
-                  baseColor: Colors.grey[800]!,
-                  highlightColor: Colors.grey[700]!,
-                  child: Column(
-                    children: List.generate(
-                      3,
+                      baseColor: Colors.grey[800]!,
+                      highlightColor: Colors.grey[700]!,
+                      child: Column(
+                        children: List.generate(
+                          3,
                           (index) => Expanded(
-                        child: Container(
-                          margin: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: Colors.grey[900],
-                            borderRadius: BorderRadius.circular(10),
+                            child: Container(
+                              margin: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.grey[900],
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ),
-                )
+                    )
                     : PreloadPageView.builder(
-                  controller: _pageController,
-                  preloadPagesCount: 5,
-                  scrollDirection: Axis.vertical,
-                  itemCount: posts.length,
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  itemBuilder: (context, index) {
-                    final post = posts[index];
-                    return VideoItem(
-                      video: post,
-                      isCurrent: index == _currentPageIndex,
-                    );
-                  },
-                ),
+                      controller: _pageController,
+                      preloadPagesCount: 5,
+                      scrollDirection: Axis.vertical,
+                      itemCount: posts.length,
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      itemBuilder: (context, index) {
+                        final post = posts[index];
+                        final controller =
+                            state.videoControllers[post.id.toString()];
+                        return VideoItem(
+                          video: post,
+                          isCurrent: index == _currentPageIndex,
+                          preloadedController: controller,
+                        );
+                      },
+                    ),
                 if (state.isLoading)
                   Shimmer.fromColors(
                     baseColor: Colors.grey[800]!,
@@ -145,7 +143,7 @@ class _VideoFeedScreenState extends ConsumerState<VideoFeedScreen> {
                     child: Column(
                       children: List.generate(
                         3,
-                            (index) => Expanded(
+                        (index) => Expanded(
                           child: Container(
                             margin: const EdgeInsets.all(8),
                             decoration: BoxDecoration(

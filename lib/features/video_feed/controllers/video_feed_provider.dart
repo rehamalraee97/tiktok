@@ -13,7 +13,6 @@ class VideoFeedState {
   final String? error;
   final int postType;
   final Map<String, VideoPlayerController> videoControllers;
-  final Map<String, bool> controllerInitialized; // Track initialization status
 
   VideoFeedState({
     this.posts = const [],
@@ -22,7 +21,6 @@ class VideoFeedState {
     this.error,
     this.postType = 1,
     this.videoControllers = const {},
-    this.controllerInitialized = const {}, // Initialize status tracker
   });
 
   VideoFeedState copyWith({
@@ -32,7 +30,6 @@ class VideoFeedState {
     String? error,
     int? postType,
     Map<String, VideoPlayerController>? videoControllers,
-    Map<String, bool>? controllerInitialized,
   }) {
     return VideoFeedState(
       posts: posts ?? this.posts,
@@ -41,20 +38,18 @@ class VideoFeedState {
       error: error ?? this.error,
       postType: postType ?? this.postType,
       videoControllers: videoControllers ?? this.videoControllers,
-      controllerInitialized: controllerInitialized ?? this.controllerInitialized,
     );
   }
 }
 
 final videoFeedProvider =
-StateNotifierProvider<VideoFeedNotifier, VideoFeedState>(
+    StateNotifierProvider<VideoFeedNotifier, VideoFeedState>(
       (ref) => VideoFeedNotifier(),
-);
+    );
 
 class VideoFeedNotifier extends StateNotifier<VideoFeedState> {
   final _repo = VideoFeedRepository();
   String? _nextCursor;
-  final db = FirebaseFirestore.instance;
 
   VideoFeedNotifier() : super(VideoFeedState()) {
     getPosts();
@@ -76,76 +71,33 @@ class VideoFeedNotifier extends StateNotifier<VideoFeedState> {
       final newControllers = Map<String, VideoPlayerController>.from(
         state.videoControllers,
       );
-      final newInitializedStatus = Map<String, bool>.from(
-        state.controllerInitialized,
-      );
-
       await syncVideosToFireStore(newPosts);
-
-      // Initialize only the first video controller immediately
-      if (newPosts.isNotEmpty) {
-        final firstPost = newPosts.first;
-        final firstId = firstPost.id.toString();
-
-        if (!newControllers.containsKey(firstId)) {
-          final ctrl = VideoPlayerController.network(firstPost.videoUrl);
-          newControllers[firstId] = ctrl;
-          newInitializedStatus[firstId] = false;
-          _initializeController(ctrl, firstId);
+      for (final post in newPosts) {
+        final idStr = post.id.toString();
+        if (!newControllers.containsKey(idStr)) {
+          final ctrl = VideoPlayerController.network(post.videoUrl);
+          try {
+            await ctrl.initialize();
+            ctrl.setLooping(true);
+            newControllers[idStr] = ctrl;
+          } catch (e) {
+            debugPrint('Video initialization failed for ${post.videoUrl}: $e');
+            await ctrl.dispose();
+          }
         }
       }
 
       state = state.copyWith(
         posts: [...state.posts, ...newPosts],
         videoControllers: newControllers,
-        controllerInitialized: newInitializedStatus,
         isLoading: false,
         hasNextPage: newPosts.isNotEmpty,
       );
-
-      // Initialize remaining controllers in background
-      for (int i = 1; i < newPosts.length; i++) {
-        final post = newPosts[i];
-        final idStr = post.id.toString();
-
-        if (!newControllers.containsKey(idStr)) {
-          final ctrl = VideoPlayerController.network(post.videoUrl);
-          newControllers[idStr] = ctrl;
-          newInitializedStatus[idStr] = false;
-          _initializeController(ctrl, idStr);
-        }
-      }
-
     } catch (e, st) {
       debugPrint('getPosts error: $e\n$st');
       state = state.copyWith(
         isLoading: false,
         error: 'Failed to load videos: ${e.toString()}',
-      );
-    }
-  }
-
-  Future<void> _initializeController(
-      VideoPlayerController ctrl,
-      String idStr
-      ) async {
-    try {
-      await ctrl.initialize();
-      ctrl.setLooping(true);
-
-      state = state.copyWith(
-        controllerInitialized: {
-          ...state.controllerInitialized,
-          idStr: true,
-        },
-      );
-    } catch (e) {
-      debugPrint('Video init failed: $e');
-      state = state.copyWith(
-        controllerInitialized: {
-          ...state.controllerInitialized,
-          idStr: false,
-        },
       );
     }
   }
@@ -167,14 +119,14 @@ class VideoFeedNotifier extends StateNotifier<VideoFeedState> {
       );
 
       final updatedPosts =
-      state.posts.map((p) => p.id == post.id ? updatedPost : p).toList();
+          state.posts.map((p) => p.id == post.id ? updatedPost : p).toList();
       state = state.copyWith(posts: updatedPosts);
 
       await _repo.likePost(int.parse(post.id.toString()), newIsLiked);
     } catch (e) {
       debugPrint('Error liking post: $e');
       final originalPosts =
-      state.posts.map((p) => p.id == post.id ? post : p).toList();
+          state.posts.map((p) => p.id == post.id ? post : p).toList();
       state = state.copyWith(posts: originalPosts);
     }
   }
@@ -193,11 +145,15 @@ class VideoFeedNotifier extends StateNotifier<VideoFeedState> {
     }
   }
 
+  final db = FirebaseFirestore.instance;
   Future<void> syncVideosToFireStore(List<Post> videos) async {
+    final db = FirebaseFirestore.instance;
+
     for (final video in videos) {
       final docRef = db.collection('videos').doc(video.id.toString());
       await docRef.set(video.toJson());
     }
+
     debugPrint('✅ Synced ${videos.length} videos to Firestore');
   }
 
@@ -225,7 +181,7 @@ class VideoFeedNotifier extends StateNotifier<VideoFeedState> {
 
   Future<void> shareVideo(Post video) async {
     final docRef = db.collection('videos').doc(video.id.toString());
-    await docRef.set(video.toJson());
+    await docRef.set(video.toJson()); // Optional: you can update/share count
   }
 
   @override
