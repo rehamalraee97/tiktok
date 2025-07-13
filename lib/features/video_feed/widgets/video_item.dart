@@ -2,10 +2,10 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:tiktok_clone_app/features/video_feed/models/video_watch_tracker.dart';
 import 'package:video_player/video_player.dart';
 import 'package:like_button/like_button.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:tiktok_clone_app/core/constants/app_colors.dart';
+ import 'package:tiktok_clone_app/core/constants/app_colors.dart';
 import 'package:tiktok_clone_app/features/video_feed/controllers/video_feed_provider.dart';
 import 'package:tiktok_clone_app/features/video_feed/controllers/video_doc_provider.dart';
 import 'package:tiktok_clone_app/features/video_feed/models/post.dart';
@@ -28,12 +28,15 @@ class VideoItem extends ConsumerStatefulWidget {
 
 class _VideoItemState extends ConsumerState<VideoItem> {
   late VideoPlayerController _videoController;
+  late final VideoWatchTracker _tracker;
   bool _initDone = false;
   String? _error;
 
   @override
   void initState() {
     super.initState();
+    _tracker = VideoWatchTracker();
+
     _initializeController();
   }
 
@@ -49,6 +52,7 @@ class _VideoItemState extends ConsumerState<VideoItem> {
         await _videoController.initialize();
       }
       _videoController.setLooping(true);
+      _videoController.addListener(_videoListener);
 
       if (widget.isCurrent) {
         _videoController.play();
@@ -64,7 +68,48 @@ class _VideoItemState extends ConsumerState<VideoItem> {
       }
     }
   }
+  void _videoListener() {
+    if (!_videoController.value.isInitialized) return;
+    final position = _videoController.value.position;
 
+    if (_videoController.value.isPlaying) {
+      _tracker.onPlay(position);
+    } else {
+      _tracker.onPause(position);
+    }
+  }
+  @override
+  void didUpdateWidget(VideoItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (!_initDone) return;
+
+    if (widget.isCurrent && !_videoController.value.isPlaying) {
+      _videoController.play();
+    } else if (!widget.isCurrent && _videoController.value.isPlaying) {
+      _videoController.pause();
+    }
+
+    if (oldWidget.isCurrent && !widget.isCurrent) {
+      _sendWatchDataSafely();
+    }
+  }
+  void _sendWatchDataSafely() {
+    final finalPosition = _videoController.value.position;
+    _tracker.stop(finalPosition);
+
+    final body = _tracker.toJson(
+      postId: widget.video.id.toString(),
+      finalPosition: finalPosition,
+    );
+
+    ref
+        .read(videoFeedProvider.notifier)
+        .sendViewData(widget.video.id.toString(), body)
+        .catchError((e) {
+      debugPrint('Error sending watch data: $e');
+    });
+  }
   void _togglePlayPause() {
     if (_videoController.value.isPlaying) {
       _videoController.pause();

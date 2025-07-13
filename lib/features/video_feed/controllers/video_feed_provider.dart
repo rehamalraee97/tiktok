@@ -158,6 +158,7 @@ class VideoFeedNotifier extends StateNotifier<VideoFeedState> {
   }
 
   Future<void> likeVideo(Post video) async {
+    await likePost(video);
     final docRef = db.collection('videos').doc(video.id.toString());
 
     await docRef.update({
